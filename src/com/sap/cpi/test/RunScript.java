@@ -23,7 +23,13 @@ public class RunScript {
 		setScriptPath(scriptFile);
 	}
 
+	public Message invokeMethod(){
+		return invokeMethod(null);
+	}
+
 	public Message invokeMethod(String methodName) {
+		if(methodName==null)
+			methodName = "processData";
 		return message = (Message) script.invokeMethod(methodName, message);
 	}
 
