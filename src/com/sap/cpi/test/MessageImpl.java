@@ -5,7 +5,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.HashMap;
@@ -16,282 +15,299 @@ import javax.activation.DataSource;
 import javax.activation.FileDataSource;
 
 import org.apache.camel.Attachment;
+import org.apache.camel.Exchange;
+import org.apache.camel.TypeConversionException;
 import org.apache.camel.converter.stream.InputStreamCache;
+import org.apache.camel.impl.DefaultCamelContext;
+import org.apache.camel.impl.DefaultExchange;
 
+import com.sap.cpi.test.util.Utility;
 import com.sap.gateway.ip.core.customdev.util.AttachmentWrapper;
+import com.sap.gateway.ip.core.customdev.util.Message;
 
-public class MessageImpl implements com.sap.gateway.ip.core.customdev.util.Message {
+class MessageImpl implements Message {
 	private Object body;
 	private Map<String, Object> headers;
 	private Map<String, Object> properties;
 	private Map<String, DataHandler> attachments;
 	private Map<String, AttachmentWrapper> attachmentWrapperObjects;
 	private Map<String, Attachment> attachmentObjects;
+	private Exchange exchange;
 
 	protected MessageImpl(File file) {
 		this();
 		try {
 			if (file.isFile()) {
-				setBody(readFilesToString(file));
-				setProperty("attachmentPath", file.getParent());
+				byte[] b = exchange.getContext().getTypeConverter().convertTo(byte[].class, new FileInputStream(file));
+				InputStreamCache inputStreamCache = new InputStreamCache(b);
+				this.setBody(inputStreamCache);
+				this.setProperty("attachmentPath", file.getParent());
 			} else {
-				setProperty("attachmentPath", file.getPath());
-				for (File f : file.listFiles()) {
-					if (f.isDirectory())
-						continue;
+				this.setProperty("attachmentPath", file.getPath());
+				File[] var5;
+				int var4 = (var5 = file.listFiles()).length;
 
-					if (f.getName().matches("(?i).*body.*")) {
-						setBody(readFilesToString(f));
-						continue;
-					}
+				for (int var3 = 0; var3 < var4; ++var3) {
+					File f = var5[var3];
+					if (!f.isDirectory()) {
+						if (f.getName().matches("(?i).*body.*")) {
+							byte[] b = exchange.getContext().getTypeConverter().convertTo(byte[].class, new FileInputStream(f));
+							InputStreamCache inputStreamCache = new InputStreamCache(b);
+							this.setBody(inputStreamCache);
+						} else {
+							int var7;
+							int var8;
+							String[] var9;
+							String property;
+							if (f.getName().matches("(?i).*header.*")) {
+								var8 = (var9 = Utility.readFilesToString(f).split(System.lineSeparator())).length;
 
-					if (f.getName().matches("(?i).*header.*")) {
-						for (String header : readFilesToString(f).split(System.lineSeparator()))
-							setHeader(header.split("/t")[0], header.split("/t")[1]);
-						continue;
-					}
+								for (var7 = 0; var7 < var8; ++var7) {
+									property = var9[var7];
+									this.setHeader(property.split("/t")[0], property.split("/t")[1]);
+								}
+							} else if (f.getName().matches("(?i).*property.*")) {
+								var8 = (var9 = Utility.readFilesToString(f).split(System.lineSeparator())).length;
 
-					if (f.getName().matches("(?i).*property.*")) {
-						for (String property : readFilesToString(f).split(System.lineSeparator()))
-							setProperty(property.split("/t")[0], property.split("/t")[1]);
-						continue;
-					}
-
-					if (f.getName().matches("(?).*attachment.*")) {
-						DataSource ds = new FileDataSource(f);
-						this.addAttachmentObject(f.getName(), new AttachmentWrapper(ds));
+								for (var7 = 0; var7 < var8; ++var7) {
+									property = var9[var7];
+									this.setProperty(property.split("/t")[0], property.split("/t")[1]);
+								}
+							} else if (f.getName().matches("(?).*attachment.*")) {
+								DataSource ds = new FileDataSource(f);
+								this.addAttachmentObject(f.getName(), new AttachmentWrapper(ds));
+							}
+						}
 					}
 				}
 			}
-		} catch (Exception e) {
-			throw new RuntimeException(e.getMessage(), e);
+		} catch (Exception var10) {
+			throw new RuntimeException(var10.getMessage(), var10);
 		}
 	}
 
-	private MessageImpl() {
-		body = new InputStreamCache(new String().getBytes());
-		attachments = new HashMap<>();
-		headers = new HashMap<>();
-		properties = new HashMap<>();
-		attachmentWrapperObjects = new HashMap<>();
+	MessageImpl() {
+		DefaultCamelContext context = new DefaultCamelContext();
+		context.setStreamCaching(true);
+		this.exchange = new DefaultExchange(context);
+		
+		this.body = null;
+		this.attachments = new HashMap<String, DataHandler>();
+		this.attachmentWrapperObjects = new HashMap<String, AttachmentWrapper>();
+	}
+	
+	protected void loadDataToExchange() {
+		if(this.getBody()!=null)
+			exchange.getIn().setBody(this.getBody());
+		if(this.getHeaders()!=null)
+			exchange.getIn().setHeaders(this.getHeaders());
+		if(this.getProperties()!=null)
+			this.getProperties().forEach((K,V)->{
+				exchange.setProperty(K, V);
+			});		
 	}
 
-	private String readFilesToString(File file) {
-		InputStream io = null;
-		try {
-			io = new FileInputStream(file);
-			byte[] byt = new byte[io.available()];
-			io.read(byt);
-			return new String(byt);
-		} catch (Exception e) {
-			throw new RuntimeException(e.getMessage(), e);
-		} finally {
-			if (io != null)
-				try {
-					io.close();
-				} catch (IOException e) {
-					throw new RuntimeException(e.getMessage(), e);
-				}
-		}
-	}
-
-	@Override
 	public <T> T getBody(Class<T> type) {
-		if (type.isInstance(this.body))
-			return type.cast(this.body);
-		return getObject(this.body, type);
+		try {
+			return this.exchange.getIn().getBody(type);			
+		} catch (TypeConversionException e) {
+			throw e;
+		}
 	}
 
-	@Override
 	public Object getBody() {
 		return this.body;
 	}
 
-	@Override
 	public void setBody(Object body) {
-		this.body = getObjectByte(body);
+		this.body = body;
 	}
 
-	@Override
 	public long getBodySize() {
 		return ((InputStreamCache) this.body).length();
 	}
 
-	@Override
 	public Map<String, Object> getHeaders() {
 		return this.headers;
 	}
 
-	@SuppressWarnings("unchecked")
-	@Override
 	public <T> T getHeader(String var1, Class<T> var2) {
-		return (T) this.headers.get(var1);
+		try {
+			if (this.exchange.getIn().getHeader(var1) == null) {
+				return null;
+			} else {
+				T obj = this.exchange.getIn().getHeader(var1, var2);
+				return obj;
+			}
+		} catch (TypeConversionException e) {
+			throw e;
+		}
 	}
 
-	@Override
 	public void setHeaders(Map<String, Object> var1) {
 		this.headers = var1;
 	}
 
-	@Override
 	public void setHeader(String var1, Object var2) {
+		if (this.headers == null) 
+			this.headers = new HashMap<>();
+		
 		this.headers.put(var1, var2);
 	}
 
-	@Override
 	public Map<String, Object> getProperties() {
 		return this.properties;
 	}
 
-	@Override
-	public void setProperties(Map<String, Object> var1) {
-		this.properties = var1;
+	public void setProperties(Map<String, Object> exchangeProperties) {
+		this.properties = exchangeProperties;
 	}
 
-	@Override
-	public void setProperty(String var1, Object var2) {
-		this.properties.put(var1, var2);
+	public void setProperty(String name, Object value) {
+		if (this.properties == null) {
+			this.properties = new HashMap<>();
+		}
+
+		this.properties.put(name, value);
 	}
 
-	@Override
-	public Object getProperty(String var1) {
-		return this.properties.get(var1);
+	public Object getProperty(String name) {
+		return this.properties != null ? this.properties.get(name) : null;
 	}
-
-	@Override
+	
 	public long getAttachmentsSize() {
-		return getAttachmentWrapperObjects().size();
+		return (long) this.getAttachmentWrapperObjects().size();
 	}
 
-	@Override
 	public void addAttachmentHeader(String headerName, String headerValue, AttachmentWrapper attachment) {
 		attachment.addHeader(headerName, headerValue);
 	}
 
-	@Override
 	public void setAttachmentHeader(String headerName, String headerValue, AttachmentWrapper attachment) {
 		attachment.setHeader(headerName, headerValue);
 	}
 
-	@Override
 	public String getAttachmentHeader(String headerName, AttachmentWrapper attachment) {
 		return attachment.getHeader(headerName);
 	}
 
-	@Override
 	public void removeAttachmentHeader(String headerName, AttachmentWrapper attachment) {
 		attachment.removeHeader(headerName);
 	}
 
-	@Override
 	public Map<String, AttachmentWrapper> getAttachmentWrapperObjects() {
 		return this.attachmentWrapperObjects;
 	}
 
-	@Override
 	public void setAttachmentWrapperObjects(Map<String, AttachmentWrapper> attachmentObjects) {
 		this.attachmentWrapperObjects = attachmentObjects;
 	}
 
-	@Override
 	public void addAttachmentObject(String id, AttachmentWrapper content) {
 		this.attachmentWrapperObjects.put(id, content);
 	}
 
 	@Deprecated
-	@Override
 	public void addAttachmentHeader(String headerName, String headerValue, Attachment attachment) {
 		attachment.addHeader(headerName, headerValue);
 	}
 
 	@Deprecated
-	@Override
 	public void setAttachmentHeader(String headerName, String headerValue, Attachment attachment) {
 		attachment.setHeader(headerName, headerValue);
 	}
 
 	@Deprecated
-	@Override
 	public String getAttachmentHeader(String headerName, Attachment attachment) {
 		return attachment.getHeader(headerName);
 	}
 
 	@Deprecated
-	@Override
 	public void removeAttachmentHeader(String headerName, Attachment attachment) {
 		attachment.removeHeader(headerName);
 	}
 
 	@Deprecated
-	@Override
 	public Map<String, Attachment> getAttachmentObjects() {
 		return this.attachmentObjects;
 	}
 
 	@Deprecated
-	@Override
 	public void setAttachmentObjects(Map<String, Attachment> attachmentObjects) {
 		this.attachmentObjects = attachmentObjects;
 	}
 
 	@Deprecated
-	@Override
 	public void addAttachmentObject(String id, Attachment content) {
 		this.attachmentObjects.put(id, content);
 	}
 
-	@Override
 	public Map<String, DataHandler> getAttachments() {
 		return this.attachments;
 	}
 
-	@Override
 	public void setAttachments(Map<String, DataHandler> attachments) {
 		this.attachments = attachments;
 	}
-
-	@SuppressWarnings("unchecked")
+	
+	@SuppressWarnings({ "unchecked", "unused" })
+	@Deprecated
 	private <T> T getObject(Object obj, Class<T> type) {
 		ObjectInputStream ois = null;
+
+		Object var7;
 		try {
 			ByteArrayOutputStream baos = new ByteArrayOutputStream();
 			InputStreamCache isc = (InputStreamCache) obj;
 			isc.writeTo(baos);
 			ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()));
-			return (T) ois.readObject();
-		} catch (Exception e) {
-			throw new RuntimeException(e.getMessage(), e);
+			var7 = ois.readObject();
+		} catch (Exception var13) {
+			throw new RuntimeException(var13.getMessage(), var13);
 		} finally {
 			try {
-				if (ois != null)
+				if (ois != null) {
 					ois.close();
-			} catch (IOException e) {
-				throw new RuntimeException(e.getMessage(), e);
+				}
+			} catch (IOException var14) {
+				throw new RuntimeException(var14.getMessage(), var14);
 			}
+
 		}
+
+		return (T) var7;
 	}
 
+	@Deprecated
+	@SuppressWarnings("unused")
 	private InputStreamCache getObjectByte(Object body) {
 		ByteArrayOutputStream baos = null;
 		ObjectOutputStream oos = null;
+
+		InputStreamCache var6;
 		try {
 			baos = new ByteArrayOutputStream();
 			oos = new ObjectOutputStream(baos);
 			oos.writeObject(body);
 			oos.flush();
-			return new InputStreamCache(baos.toByteArray());
-		} catch (IOException e) {
-			throw new RuntimeException(e.getMessage(), e);
+			var6 = new InputStreamCache(baos.toByteArray());
+		} catch (IOException var12) {
+			throw new RuntimeException(var12.getMessage(), var12);
 		} finally {
 			try {
-				if (baos != null)
+				if (baos != null) {
 					baos.close();
-				if (oos != null)
-					oos.close();
-			} catch (Exception e) {
-				throw new RuntimeException(e.getMessage(), e);
-			}
-		}
-	}
+				}
 
+				if (oos != null) {
+					oos.close();
+				}
+			} catch (Exception var13) {
+				throw new RuntimeException(var13.getMessage(), var13);
+			}
+
+		}
+
+		return var6;
+	}
 }
