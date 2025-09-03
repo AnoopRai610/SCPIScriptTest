@@ -1,3 +1,4 @@
+# 🚨 NOTICE:</span> This is build to run on Apache Camel 2.24.X. As SAP CI Camel version updated, please use [SCPIScriptTest_v3](https://github.com/AnoopRai610/SCPIScriptTest_v3)
 # SCPIScriptTest
 
 **SCPIScriptTest** is a lightweight Java library that enables you to develop and test **SAP CPI Groovy scripts locally**, outside of the SAP Integration Suite environment. It simulates the runtime context and supports value mapping, headers, properties, and attachments.
